@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LibreTV - 解析播放</title>
+    <meta name="description" content="LibreTV 视频解析播放">
+
+    <!-- Favicon -->
+    <link rel="icon" href="image/logo.png">
+    <link rel="apple-touch-icon" href="image/logo-black.png">
+    <link rel="manifest" href="manifest.json">
+
+    <script src="libs/tailwindcss.min.js"></script>
+    <link rel="stylesheet" href="css/styles.css">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .parse-header {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            background: #0a0a0a;
+            border-bottom: 1px solid #333;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+        .parse-header .logo-link {
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+            color: inherit;
+            cursor: pointer;
+            margin-right: 16px;
+            flex-shrink: 0;
+        }
+        .parse-header .logo-link svg {
+            width: 28px;
+            height: 28px;
+            margin-right: 8px;
+            color: #00ccff;
+        }
+        .parse-header .logo-text {
+            font-size: 1.25rem;
+            font-weight: bold;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .parse-header .video-title {
+            flex: 1;
+            text-align: center;
+            font-size: 1rem;
+            font-weight: 600;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            padding: 0 12px;
+        }
+        .parse-header .back-btn {
+            display: flex;
+            align-items: center;
+            padding: 6px 16px;
+            background: #222;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-decoration: none;
+            flex-shrink: 0;
+            font-size: 0.875rem;
+        }
+        .parse-header .back-btn:hover {
+            background: #333;
+        }
+        .parse-header .back-btn svg {
+            width: 18px;
+            height: 18px;
+            margin-right: 4px;
+        }
+        .player-frame-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+        .player-frame-container iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+        .loading-overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 5;
+            transition: opacity 0.5s;
+        }
+        .loading-overlay.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .loading-spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid #333;
+            border-top-color: #00ccff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .loading-text {
+            margin-top: 16px;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .error-container {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            z-index: 6;
+        }
+        .error-container.show {
+            display: flex;
+        }
+        .error-icon {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+        .error-message {
+            color: #ff6b6b;
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+        }
+        .error-sub {
+            color: #888;
+            font-size: 0.85rem;
+        }
+
+        /* 解析源选择器 */
+        .parse-source-selector {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+            margin-right: 12px;
+        }
+        .parse-source-selector label {
+            font-size: 0.75rem;
+            color: #888;
+            white-space: nowrap;
+        }
+        .parse-source-selector select {
+            background: #222;
+            color: #fff;
+            border: 1px solid #333;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 0.8rem;
+            cursor: pointer;
+            outline: none;
+        }
+        .parse-source-selector select:focus {
+            border-color: #00ccff;
+        }
+
+        @media (max-width: 640px) {
+            .parse-header .back-btn span {
+                display: none;
+            }
+            .parse-header .back-btn {
+                padding: 6px 10px;
+            }
+            .parse-source-selector label {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 顶部导航 -->
+    <header class="parse-header">
+        <a href="/" class="logo-link" id="homeLink">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+            </svg>
+            <span class="logo-text">LibreTV</span>
+        </a>
+
+        <h2 class="video-title" id="videoTitle">解析播放</h2>
+
+        <!-- 解析源选择 -->
+        <div class="parse-source-selector">
+            <label for="parseSource">解析源:</label>
+            <select id="parseSource" onchange="switchParseSource()">
+                <option value="https://jx.xmflv.cc/?url=">虾米</option>
+                <option value="https://jx.bozrc.com:4433/player/?url=">播仕直连</option>
+                <option value="https://jx.m3u8.tv/jiexi/?url=">m3u8.tv</option>
+            </select>
+        </div>
+
+        <a href="#" id="goBackBtn" onclick="goBackParse(event)" class="back-btn">
+            <svg viewBox="0 0 24 24" fill="#ffffff" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5.25 11h15a1.5 1.5 0 1 1 0 3H5.25a1.5 1.5 0 0 1 0-3z"/>
+                <path d="M5.55 12 11.3 17.3a1.5 1.5 0 1 1-2.12 2.12L3 12l6.18-6.18a1.5 1.5 0 1 1 2.12 2.12L5.55 12z"/>
+            </svg>
+            <span>返回</span>
+        </a>
+    </header>
+
+    <!-- 播放器区域 -->
+    <div class="player-frame-container" id="playerContainer">
+        <!-- 加载动画 -->
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">正在加载解析播放器...</div>
+        </div>
+
+        <!-- 错误提示 -->
+        <div class="error-container" id="errorContainer">
+            <div class="error-icon">⚠️</div>
+            <div class="error-message" id="errorMessage">视频解析失败</div>
+            <div class="error-sub">请检查视频链接是否正确或尝试更换解析源</div>
+        </div>
+
+        <!-- 解析 iframe -->
+        <iframe id="parseFrame" 
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+                allowfullscreen
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture">
+        </iframe>
+    </div>
+
+    <script>
+        // 解析源列表
+        const PARSE_SOURCES = {
+            'https://jx.xmflv.cc/?url=': '虾米',
+            'https://jx.bozrc.com:4433/player/?url=': '播仕直连',
+            'https://jx.m3u8.tv/jiexi/?url=': 'm3u8.tv'
+        };
+
+        let currentVideoUrl = '';
+
+        // 页面初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const videoUrl = urlParams.get('url');
+
+            if (!videoUrl) {
+                showError('未提供视频链接');
+                return;
+            }
+
+            currentVideoUrl = videoUrl;
+
+            // 设置页面标题
+            try {
+                const parsedUrl = new URL(videoUrl);
+                document.getElementById('videoTitle').textContent = '解析播放 - ' + parsedUrl.hostname;
+                document.title = '解析播放 - ' + parsedUrl.hostname + ' - LibreTV';
+            } catch(e) {
+                document.getElementById('videoTitle').textContent = '解析播放';
+            }
+
+            // 恢复上次使用的解析源
+            const lastSource = localStorage.getItem('lastParseSource');
+            if (lastSource) {
+                const select = document.getElementById('parseSource');
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].value === lastSource) {
+                        select.selectedIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            // 加载解析播放器
+            loadParsePlayer(videoUrl);
+        });
+
+        // 加载解析播放器
+        function loadParsePlayer(videoUrl) {
+            const select = document.getElementById('parseSource');
+            const parseBaseUrl = select.value;
+            const frame = document.getElementById('parseFrame');
+            const loading = document.getElementById('loadingOverlay');
+            const error = document.getElementById('errorContainer');
+
+            // 显示加载中，隐藏错误
+            loading.classList.remove('hidden');
+            error.classList.remove('show');
+
+            // 保存选择的解析源
+            localStorage.setItem('lastParseSource', parseBaseUrl);
+
+            // 构造解析URL
+            const parseSrc = parseBaseUrl + encodeURIComponent(videoUrl);
+
+            // 设置 iframe src
+            frame.src = parseSrc;
+
+            // iframe 加载完成后隐藏 loading
+            frame.onload = function() {
+                setTimeout(function() {
+                    loading.classList.add('hidden');
+                }, 500);
+            };
+
+            // 超时处理：15秒后如果还在加载，仍然隐藏loading
+            setTimeout(function() {
+                loading.classList.add('hidden');
+            }, 15000);
+        }
+
+        // 切换解析源
+        function switchParseSource() {
+            if (currentVideoUrl) {
+                loadParsePlayer(currentVideoUrl);
+            }
+        }
+
+        // 显示错误
+        function showError(msg) {
+            document.getElementById('loadingOverlay').classList.add('hidden');
+            document.getElementById('errorMessage').textContent = msg;
+            document.getElementById('errorContainer').classList.add('show');
+        }
+
+        // 返回上一页
+        function goBackParse(event) {
+            if (event) event.preventDefault();
+
+            // 尝试返回上一页
+            if (document.referrer && document.referrer !== window.location.href) {
+                window.location.href = document.referrer;
+            } else if (window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.location.href = '/';
+            }
+        }
+    </script>
+</body>
+</html>
